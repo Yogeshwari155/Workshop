@@ -9,9 +9,13 @@ from database import create_tables, init_admin_user
 from auth import auth_sidebar, get_current_user, require_auth, logout
 from workshop_manager import WorkshopManager
 
-# Initialize database
-create_tables()
-init_admin_user()
+# Initialize database with error handling
+try:
+    create_tables()
+    init_admin_user()
+except Exception as e:
+    st.error(f"Database initialization error: {e}")
+    st.info("Please refresh the page to retry database connection.")
 
 # Page configuration
 st.set_page_config(

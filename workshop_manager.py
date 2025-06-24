@@ -9,10 +9,17 @@ import pandas as pd
 
 class WorkshopManager:
     def __init__(self):
-        self.db = SessionLocal()
+        try:
+            self.db = SessionLocal()
+        except Exception as e:
+            print(f"Database connection error: {e}")
+            raise
     
     def close(self):
-        self.db.close()
+        try:
+            self.db.close()
+        except:
+            pass
     
     def create_workshop(self, workshop_data: dict, organizer_user_id: int = None) -> tuple[bool, str]:
         """Create a new workshop"""

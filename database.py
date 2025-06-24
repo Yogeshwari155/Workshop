@@ -6,9 +6,14 @@ from sqlalchemy.sql import func
 from datetime import datetime, timezone
 import bcrypt
 
-# Database setup
+# Database setup with connection pooling and retry logic
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost/workshop_platform")
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    connect_args={"sslmode": "prefer"}
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -119,26 +124,41 @@ def get_db():
         db.close()
 
 def create_tables():
-    Base.metadata.create_all(bind=engine)
+    """Create database tables with retry logic"""
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("Database tables created successfully!")
+    except Exception as e:
+        print(f"Error creating tables: {e}")
+        # Try to reconnect and create again
+        try:
+            engine.dispose()
+            Base.metadata.create_all(bind=engine)
+            print("Database tables created on retry!")
+        except Exception as e2:
+            print(f"Failed to create tables after retry: {e2}")
 
 def init_admin_user():
     """Create default admin user if not exists"""
-    db = SessionLocal()
     try:
-        admin = db.query(User).filter(User.email == "admin@workshop.com").first()
-        if not admin:
-            admin = User(
-                name="Admin User",
-                email="admin@workshop.com",
-                password_hash=User.hash_password("admin123"),
-                role="admin",
-                phone="+91 9999999999"
-            )
-            db.add(admin)
-            db.commit()
-            print("Default admin user created: admin@workshop.com / admin123")
-    finally:
-        db.close()
+        db = SessionLocal()
+        try:
+            admin = db.query(User).filter(User.email == "admin@workshop.com").first()
+            if not admin:
+                admin = User(
+                    name="Admin User",
+                    email="admin@workshop.com",
+                    password_hash=User.hash_password("admin123"),
+                    role="admin",
+                    phone="+91 9999999999"
+                )
+                db.add(admin)
+                db.commit()
+                print("Default admin user created: admin@workshop.com / admin123")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"Error creating admin user: {e}")
 
 if __name__ == "__main__":
     create_tables()
