@@ -604,21 +604,54 @@ def show_user_management():
     # Get users
     users = db.query(User).order_by(User.created_at.desc()).limit(100).all()
     
-    # Display users in a table
-    user_data = []
     for user_item in users:
-        user_data.append({
-            'ID': user_item.id,
-            'Name': user_item.name,
-            'Email': user_item.email,
-            'Phone': user_item.phone or '',
-            'Role': user_item.role,
-            'Status': 'Active' if user_item.is_active else 'Inactive',
-            'Registered': user_item.created_at.strftime('%Y-%m-%d')
-        })
-    
-    df = pd.DataFrame(user_data)
-    st.dataframe(df, use_container_width=True)
+        with st.expander(f"{user_item.name} ({user_item.role}) - {user_item.email}"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.write(f"**Name:** {user_item.name}")
+                st.write(f"**Email:** {user_item.email}")
+                st.write(f"**Phone:** {user_item.phone or 'Not provided'}")
+                st.write(f"**Role:** {user_item.role}")
+                st.write(f"**Status:** {'Active' if user_item.is_active else 'Inactive'}")
+                st.write(f"**Registered:** {user_item.created_at.strftime('%Y-%m-%d')}")
+            
+            with col2:
+                # User activity stats
+                if user_item.role == "user":
+                    registrations_count = db.query(Registration).filter(Registration.user_id == user_item.id).count()
+                    confirmed_registrations = db.query(Registration).filter(
+                        Registration.user_id == user_item.id, Registration.status == "confirmed"
+                    ).count()
+                    st.write(f"**Total Registrations:** {registrations_count}")
+                    st.write(f"**Confirmed Registrations:** {confirmed_registrations}")
+                
+                elif user_item.role == "enterprise":
+                    workshops_count = db.query(Workshop).filter(Workshop.organizer_user_id == user_item.id).count()
+                    total_registrations = db.query(Registration).join(Workshop).filter(
+                        Workshop.organizer_user_id == user_item.id
+                    ).count()
+                    st.write(f"**Workshops Created:** {workshops_count}")
+                    st.write(f"**Total Registrations Received:** {total_registrations}")
+            
+            with col3:
+                # Recent activity
+                st.subheader("Recent Activity")
+                if user_item.role == "user":
+                    recent_registrations = db.query(Registration).filter(
+                        Registration.user_id == user_item.id
+                    ).order_by(Registration.registered_at.desc()).limit(3).all()
+                    
+                    for reg in recent_registrations:
+                        st.write(f"• {reg.workshop.title} ({reg.status})")
+                
+                elif user_item.role == "enterprise":
+                    recent_workshops = db.query(Workshop).filter(
+                        Workshop.organizer_user_id == user_item.id
+                    ).order_by(Workshop.created_at.desc()).limit(3).all()
+                    
+                    for workshop in recent_workshops:
+                        st.write(f"• {workshop.title} ({workshop.status})")
 
 def show_enterprise_management():
     """Display enterprise management page for admins"""
