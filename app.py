@@ -1,36 +1,22 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+from datetime import datetime, date, timedelta
 import json
-import io
-import base64
-from PIL import Image
-import threading
-import time
+from typing import List
 
-from data_handler import DataHandler
-from visualization import VisualizationEngine
-from api_endpoints import APIServer
-from utils import export_visualization, create_shareable_link
+# Import our modules
+from database import create_tables, init_admin_user
+from auth import auth_sidebar, get_current_user, require_auth, logout
+from workshop_manager import WorkshopManager
 
-# Initialize session state
-if 'data' not in st.session_state:
-    st.session_state.data = None
-if 'uploaded_file_name' not in st.session_state:
-    st.session_state.uploaded_file_name = None
-if 'api_server' not in st.session_state:
-    st.session_state.api_server = None
-
-# Initialize components
-data_handler = DataHandler()
-viz_engine = VisualizationEngine()
+# Initialize database
+create_tables()
+init_admin_user()
 
 # Page configuration
 st.set_page_config(
-    page_title="Creative Data Studio",
-    page_icon="📊",
+    page_title="Workshop Booking Platform",
+    page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -40,367 +26,572 @@ st.markdown("""
 <style>
 .main-header {
     text-align: center;
-    padding: 1rem 0;
-    border-bottom: 2px solid #f0f2f6;
-    margin-bottom: 2rem;
+    padding: 2rem 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    margin: -1rem -1rem 2rem -1rem;
+    border-radius: 0 0 1rem 1rem;
 }
-.metric-card {
-    background-color: #f8f9fa;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    border-left: 4px solid #1f77b4;
+.workshop-card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 1rem;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    border-left: 4px solid #667eea;
+    margin: 1rem 0;
 }
+.status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 1rem;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+.status-confirmed { background-color: #d4edda; color: #155724; }
+.status-pending { background-color: #fff3cd; color: #856404; }
+.status-rejected { background-color: #f8d7da; color: #721c24; }
 </style>
 """, unsafe_allow_html=True)
 
+# Authentication and Navigation
+user = auth_sidebar()
+
+# Main navigation based on user role
+if user:
+    if user.role == "admin":
+        page = st.sidebar.selectbox(
+            "Navigation", 
+            ["Dashboard", "Workshop Management", "Registration Management", "User Management"]
+        )
+    else:
+        page = st.sidebar.selectbox(
+            "Navigation", 
+            ["Browse Workshops", "My Registrations", "Profile"]
+        )
+else:
+    page = "Browse Workshops"
+
 # Main header
 st.markdown('<div class="main-header">', unsafe_allow_html=True)
-st.title("📊 Creative Data Studio")
-st.markdown("*Powerful data analysis and visualization for creative professionals*")
+st.title("🎓 Workshop Booking Platform")
+st.markdown("*Discover and register for amazing workshops from top instructors*")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Sidebar for navigation and controls
-with st.sidebar:
-    st.header("🎛️ Control Panel")
+# Initialize workshop manager
+wm = WorkshopManager()
+
+def show_workshop_browse_page():
+    """Display workshop browsing page for all users"""
+    st.header("🔍 Discover Workshops")
     
-    # Start/Stop API Server
-    st.subheader("API Server")
-    col1, col2 = st.columns(2)
-    
+    # Search and filters
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        if st.button("Start API", type="primary"):
-            if st.session_state.api_server is None:
-                st.session_state.api_server = APIServer()
-                thread = threading.Thread(target=st.session_state.api_server.run, daemon=True)
-                thread.start()
-                st.success("API Server started on port 8000")
-            else:
-                st.info("API Server already running")
-    
+        search_term = st.text_input("🔍 Search workshops, instructors, or categories", placeholder="React, AI, Marketing...")
     with col2:
-        if st.button("Stop API"):
-            if st.session_state.api_server:
-                st.session_state.api_server.stop()
-                st.session_state.api_server = None
-                st.success("API Server stopped")
-            else:
-                st.info("API Server not running")
+        categories = ["All Categories", "Technology", "Marketing", "Design", "Finance", "Creative", "Business"]
+        category_filter = st.selectbox("Category", categories)
+    with col3:
+        cities = ["All Cities", "Mumbai", "Bangalore", "Delhi", "Chennai", "Pune", "Hyderabad"]
+        city_filter = st.selectbox("City", cities)
     
-    # API Status
-    if st.session_state.api_server:
-        st.success("🟢 API Server Active")
-        st.markdown("**Endpoints:**")
-        st.code("""
-POST /api/upload - Upload data
-GET /api/data - Get current data
-POST /api/visualize - Create visualization
-GET /api/export/{viz_id} - Export visualization
-        """)
-    else:
-        st.error("🔴 API Server Inactive")
-
-# Main content area
-tab1, tab2, tab3, tab4 = st.tabs(["📁 Data Import", "🔍 Explore", "📈 Visualize", "📤 Export & Share"])
-
-with tab1:
-    st.header("Data Import")
+    # Additional filters in expander
+    with st.expander("🎛️ More Filters"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            levels = ["All Levels", "Beginner", "Intermediate", "Advanced"]
+            level_filter = st.selectbox("Level", levels)
+        with col2:
+            price_filters = ["All", "Free", "Paid"]
+            price_filter = st.selectbox("Price", price_filters)
+        with col3:
+            sort_options = ["Newest", "Date", "Price Low to High", "Price High to Low", "Title"]
+            sort_by = st.selectbox("Sort By", sort_options)
     
-    # File upload section
-    st.subheader("Upload Data Files")
-    uploaded_file = st.file_uploader(
-        "Choose a file",
-        type=['csv', 'json', 'xlsx'],
-        help="Supported formats: CSV, JSON, Excel"
-    )
+    # Get workshops
+    filters = {
+        'search': search_term if search_term else None,
+        'category': category_filter,
+        'city': city_filter,
+        'level': level_filter,
+        'price_filter': price_filter,
+        'sort_by': sort_by.lower().replace(' ', '_')
+    }
     
-    if uploaded_file is not None:
-        try:
-            with st.spinner("Processing file..."):
-                st.session_state.data = data_handler.load_file(uploaded_file)
-                st.session_state.uploaded_file_name = uploaded_file.name
-            
-            st.success(f"✅ Successfully loaded: {uploaded_file.name}")
-            
-            # Display basic info
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Rows", len(st.session_state.data))
-            with col2:
-                st.metric("Columns", len(st.session_state.data.columns))
-            with col3:
-                st.metric("Size", f"{st.session_state.data.memory_usage(deep=True).sum() / 1024:.1f} KB")
+    workshops_data = wm.get_workshops(filters, page=1, per_page=10)
+    workshops = workshops_data['workshops']
+    
+    # Display workshops
+    if workshops:
+        st.subheader(f"📚 Found {workshops_data['total']} workshops")
+        
+        for workshop in workshops:
+            with st.container():
+                st.markdown('<div class="workshop-card">', unsafe_allow_html=True)
                 
-        except Exception as e:
-            st.error(f"❌ Error loading file: {str(e)}")
-    
-    # API Data Import
-    st.subheader("Import from API")
-    api_url = st.text_input("API URL", placeholder="https://api.example.com/data")
-    api_key = st.text_input("API Key (optional)", type="password")
-    
-    if st.button("Fetch Data"):
-        if api_url:
-            try:
-                with st.spinner("Fetching data from API..."):
-                    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-                    import requests
-                    response = requests.get(api_url, headers=headers)
-                    response.raise_for_status()
-                    
-                    if response.headers.get('content-type', '').startswith('application/json'):
-                        data = response.json()
-                        st.session_state.data = pd.json_normalize(data)
+                col1, col2, col3 = st.columns([2, 1, 1])
+                
+                with col1:
+                    st.subheader(workshop.title)
+                    st.write(f"👨‍🏫 **Instructor:** {workshop.instructor}")
+                    st.write(f"🏢 **Organizer:** {workshop.organizer}")
+                    st.write(f"📍 **Location:** {workshop.location}, {workshop.city}")
+                    if workshop.description:
+                        st.write(f"📝 {workshop.description[:100]}...")
+                
+                with col2:
+                    st.write(f"📅 **Date:** {workshop.date.strftime('%Y-%m-%d')}")
+                    st.write(f"⏰ **Time:** {workshop.time}")
+                    st.write(f"⏱️ **Duration:** {workshop.duration}")
+                    st.write(f"📊 **Level:** {workshop.level}")
+                    st.write(f"🎯 **Category:** {workshop.category}")
+                
+                with col3:
+                    if workshop.price > 0:
+                        st.metric("💰 Price", f"₹{workshop.price:,.0f}")
                     else:
-                        st.session_state.data = pd.read_csv(io.StringIO(response.text))
+                        st.success("🆓 FREE")
                     
-                    st.session_state.uploaded_file_name = "API Data"
-                    st.success("✅ Data fetched successfully!")
+                    st.metric("💺 Available Seats", f"{workshop.available_seats}/{workshop.max_seats}")
                     
-            except Exception as e:
-                st.error(f"❌ Error fetching data: {str(e)}")
-
-with tab2:
-    st.header("Data Exploration")
-    
-    if st.session_state.data is not None:
-        df = st.session_state.data
-        
-        # Data overview
-        st.subheader("Dataset Overview")
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.dataframe(df.head(100), use_container_width=True)
-        
-        with col2:
-            st.markdown("**Data Types:**")
-            st.write(df.dtypes)
-            
-            st.markdown("**Missing Values:**")
-            missing = df.isnull().sum()
-            st.write(missing[missing > 0])
-        
-        # Data filtering
-        st.subheader("Data Filtering")
-        
-        # Column selection
-        selected_columns = st.multiselect(
-            "Select columns to display",
-            df.columns.tolist(),
-            default=df.columns.tolist()[:5]
-        )
-        
-        if selected_columns:
-            filtered_df = df[selected_columns]
-            
-            # Numeric filters
-            numeric_columns = filtered_df.select_dtypes(include=['number']).columns
-            if len(numeric_columns) > 0:
-                st.markdown("**Numeric Filters:**")
-                for col in numeric_columns:
-                    min_val, max_val = float(filtered_df[col].min()), float(filtered_df[col].max())
-                    range_val = st.slider(
-                        f"{col}",
-                        min_val, max_val, (min_val, max_val),
-                        key=f"filter_{col}"
-                    )
-                    filtered_df = filtered_df[
-                        (filtered_df[col] >= range_val[0]) & 
-                        (filtered_df[col] <= range_val[1])
-                    ]
-            
-            # Text filters
-            text_columns = filtered_df.select_dtypes(include=['object']).columns
-            if len(text_columns) > 0:
-                st.markdown("**Text Filters:**")
-                for col in text_columns[:3]:  # Limit to 3 to avoid clutter
-                    unique_values = filtered_df[col].unique()
-                    if len(unique_values) <= 50:  # Only show multiselect for manageable number of options
-                        selected_values = st.multiselect(
-                            f"{col}",
-                            unique_values,
-                            key=f"text_filter_{col}"
-                        )
-                        if selected_values:
-                            filtered_df = filtered_df[filtered_df[col].isin(selected_values)]
-            
-            # Display filtered data
-            st.subheader("Filtered Data")
-            st.dataframe(filtered_df, use_container_width=True)
-            
-            # Basic statistics
-            if len(numeric_columns) > 0:
-                st.subheader("Statistics")
-                st.write(filtered_df[numeric_columns].describe())
+                    if user and workshop.available_seats > 0:
+                        if st.button(f"Register Now", key=f"register_{workshop.id}"):
+                            st.session_state[f'register_workshop_{workshop.id}'] = True
+                            st.rerun()
+                    elif workshop.available_seats == 0:
+                        st.error("🚫 Fully Booked")
+                    else:
+                        st.info("ℹ️ Login to Register")
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Registration form
+                if user and st.session_state.get(f'register_workshop_{workshop.id}'):
+                    show_registration_form(workshop)
     else:
-        st.info("Please upload data in the 'Data Import' tab to start exploring.")
+        st.info("No workshops found matching your criteria. Try adjusting your filters.")
 
-with tab3:
-    st.header("Create Visualizations")
+def show_registration_form(workshop):
+    """Display registration form for a workshop"""
+    st.subheader(f"Register for {workshop.title}")
     
-    if st.session_state.data is not None:
-        df = st.session_state.data
-        
-        # Visualization controls
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            st.subheader("Chart Configuration")
-            
-            chart_type = st.selectbox(
-                "Chart Type",
-                ["Scatter Plot", "Line Chart", "Bar Chart", "Histogram", "Box Plot", "Heatmap", "Pie Chart"]
-            )
-            
-            # Dynamic column selection based on chart type
-            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-            categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
-            all_cols = df.columns.tolist()
-            
-            if chart_type in ["Scatter Plot", "Line Chart"]:
-                x_col = st.selectbox("X-axis", all_cols)
-                y_col = st.selectbox("Y-axis", numeric_cols)
-                color_col = st.selectbox("Color by (optional)", [None] + all_cols)
-                size_col = st.selectbox("Size by (optional)", [None] + numeric_cols)
-                
-            elif chart_type in ["Bar Chart"]:
-                x_col = st.selectbox("X-axis", categorical_cols + numeric_cols)
-                y_col = st.selectbox("Y-axis", numeric_cols)
-                color_col = st.selectbox("Color by (optional)", [None] + categorical_cols)
-                
-            elif chart_type == "Histogram":
-                x_col = st.selectbox("Column", numeric_cols)
-                color_col = st.selectbox("Color by (optional)", [None] + categorical_cols)
-                bins = st.slider("Number of bins", 10, 100, 30)
-                
-            elif chart_type == "Box Plot":
-                y_col = st.selectbox("Y-axis", numeric_cols)
-                x_col = st.selectbox("Group by (optional)", [None] + categorical_cols)
-                
-            elif chart_type == "Heatmap":
-                selected_cols = st.multiselect("Select numeric columns", numeric_cols, default=numeric_cols[:5])
-                
-            elif chart_type == "Pie Chart":
-                values_col = st.selectbox("Values", numeric_cols)
-                names_col = st.selectbox("Labels", categorical_cols)
-            
-            # Chart styling
-            st.subheader("Styling")
-            title = st.text_input("Chart Title", value=f"{chart_type} - {st.session_state.uploaded_file_name or 'Data'}")
-            color_theme = st.selectbox("Color Theme", ["plotly", "viridis", "plasma", "inferno", "magma", "cividis"])
-            
-        with col2:
-            st.subheader("Preview")
-            
-            try:
-                # Create visualization based on type
-                fig = viz_engine.create_chart(
-                    df, chart_type, 
-                    x_col=locals().get('x_col'),
-                    y_col=locals().get('y_col'),
-                    color_col=locals().get('color_col'),
-                    size_col=locals().get('size_col'),
-                    selected_cols=locals().get('selected_cols'),
-                    values_col=locals().get('values_col'),
-                    names_col=locals().get('names_col'),
-                    bins=locals().get('bins'),
-                    title=title,
-                    color_theme=color_theme
-                )
-                
-                if fig:
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Store current visualization in session state
-                    st.session_state.current_viz = fig
-                    st.session_state.current_viz_config = {
-                        'chart_type': chart_type,
-                        'title': title,
-                        'color_theme': color_theme
-                    }
-                else:
-                    st.error("Could not create visualization with current settings.")
-                    
-            except Exception as e:
-                st.error(f"Error creating visualization: {str(e)}")
-    else:
-        st.info("Please upload data in the 'Data Import' tab to create visualizations.")
-
-with tab4:
-    st.header("Export & Share")
-    
-    if 'current_viz' in st.session_state:
+    with st.form(f"registration_form_{workshop.id}"):
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Export Options")
-            
-            export_format = st.selectbox("Format", ["PNG", "PDF", "HTML", "JSON"])
-            
-            if st.button("Export Visualization", type="primary"):
-                try:
-                    exported_data = export_visualization(st.session_state.current_viz, export_format)
-                    
-                    if export_format in ["PNG", "PDF"]:
-                        st.download_button(
-                            label=f"Download {export_format}",
-                            data=exported_data,
-                            file_name=f"visualization.{export_format.lower()}",
-                            mime=f"image/{export_format.lower()}" if export_format == "PNG" else "application/pdf"
-                        )
-                    elif export_format == "HTML":
-                        st.download_button(
-                            label="Download HTML",
-                            data=exported_data,
-                            file_name="visualization.html",
-                            mime="text/html"
-                        )
-                    elif export_format == "JSON":
-                        st.download_button(
-                            label="Download JSON",
-                            data=exported_data,
-                            file_name="visualization.json",
-                            mime="application/json"
-                        )
-                    
-                    st.success(f"✅ Visualization exported as {export_format}")
-                    
-                except Exception as e:
-                    st.error(f"❌ Export failed: {str(e)}")
+            st.write("**Workshop Details:**")
+            st.write(f"Price: {'Free' if workshop.price == 0 else f'₹{workshop.price:,.0f}'}")
+            st.write(f"Date: {workshop.date.strftime('%Y-%m-%d')}")
+            st.write(f"Time: {workshop.time}")
+            st.write(f"Duration: {workshop.duration}")
         
         with col2:
-            st.subheader("Shareable Link")
+            notes = st.text_area("Notes (optional)", placeholder="Why are you interested in this workshop?")
             
-            if st.button("Generate Shareable Link"):
-                try:
-                    link = create_shareable_link(st.session_state.current_viz)
-                    st.success("✅ Shareable link generated!")
-                    st.code(link)
-                    st.info("This link allows others to view your visualization online.")
-                except Exception as e:
-                    st.error(f"❌ Failed to generate link: {str(e)}")
+            if workshop.price > 0:
+                st.subheader("Payment Details")
+                payment_method = st.selectbox("Payment Method", ["UPI", "Bank Transfer"])
+                
+                if payment_method == "UPI":
+                    upi_id = st.text_input("UPI ID", placeholder="your-upi@paytm")
+                    transaction_id = st.text_input("Transaction ID", placeholder="Enter transaction ID after payment")
+                    st.info(f"Please pay ₹{workshop.price:,.0f} to organizer's UPI and enter transaction details")
+                else:
+                    transaction_id = st.text_input("Transaction Reference", placeholder="Bank transfer reference")
+                    st.info("Bank details will be shared after registration")
         
-        # Visualization summary
-        st.subheader("Current Visualization")
-        if 'current_viz_config' in st.session_state:
-            config = st.session_state.current_viz_config
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Chart Type", config['chart_type'])
-            with col2:
-                st.metric("Title", config['title'])
-            with col3:
-                st.metric("Theme", config['color_theme'])
-    else:
-        st.info("Create a visualization in the 'Visualize' tab to enable export options.")
+        submitted = st.form_submit_button("Submit Registration")
+        
+        if submitted:
+            registration_data = {
+                'notes': notes,
+                'payment_method': payment_method.lower() if workshop.price > 0 else None,
+                'transaction_id': transaction_id if workshop.price > 0 else None,
+                'upi_id': upi_id if workshop.price > 0 and payment_method == "UPI" else None
+            }
+            
+            success, message = wm.register_for_workshop(user.id, workshop.id, registration_data)
+            
+            if success:
+                st.success(message)
+                del st.session_state[f'register_workshop_{workshop.id}']
+                st.rerun()
+            else:
+                st.error(message)
 
-# Footer
-st.markdown("---")
-st.markdown(
-    """
-    <div style='text-align: center; color: #666; padding: 1rem;'>
-    Creative Data Studio - Empowering creative professionals with data insights
-    </div>
-    """, 
-    unsafe_allow_html=True
-)
+def show_admin_dashboard():
+    """Display admin dashboard"""
+    require_auth("admin")
+    
+    st.header("📊 Admin Dashboard")
+    
+    # Get statistics
+    stats = wm.get_dashboard_stats()
+    
+    # Display metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Workshops", stats['total_workshops'])
+        st.metric("Active Workshops", stats['active_workshops'])
+    
+    with col2:
+        st.metric("Total Registrations", stats['total_registrations'])
+        st.metric("Confirmed", stats['confirmed_registrations'])
+    
+    with col3:
+        st.metric("Pending Approvals", stats['pending_registrations'])
+    
+    with col4:
+        st.metric("Total Revenue", f"₹{stats['total_revenue']:,.0f}")
+    
+    # Recent activity
+    st.subheader("📋 Recent Activity")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Recent Workshops")
+        recent_workshops = wm.get_workshops({'sort_by': 'created_at'}, per_page=5)['workshops']
+        for workshop in recent_workshops:
+            st.write(f"• {workshop.title} - {workshop.city}")
+    
+    with col2:
+        st.subheader("Pending Registrations")
+        pending_registrations = wm.get_pending_registrations()[:5]
+        for reg in pending_registrations:
+            st.write(f"• {reg.user.name} - {reg.workshop.title}")
+
+def show_workshop_management():
+    """Display workshop management page"""
+    require_auth("admin")
+    
+    st.header("🎓 Workshop Management")
+    
+    tab1, tab2 = st.tabs(["All Workshops", "Create New Workshop"])
+    
+    with tab1:
+        # Filters
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            search = st.text_input("Search workshops")
+        with col2:
+            status_filter = st.selectbox("Status", ["All", "active", "cancelled", "completed"])
+        with col3:
+            category_filter = st.selectbox("Category", ["All Categories", "Technology", "Marketing", "Design", "Finance", "Creative", "Business"])
+        
+        # Get workshops
+        filters = {
+            'search': search if search else None,
+            'status': status_filter if status_filter != "All" else None,
+            'category': category_filter if category_filter != "All Categories" else None
+        }
+        
+        workshops_data = wm.get_workshops(filters, per_page=20)
+        workshops = workshops_data['workshops']
+        
+        # Display workshops
+        for workshop in workshops:
+            with st.expander(f"{workshop.title} - {workshop.city} ({workshop.status})"):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write(f"**Instructor:** {workshop.instructor}")
+                    st.write(f"**Date:** {workshop.date.strftime('%Y-%m-%d')}")
+                    st.write(f"**Time:** {workshop.time}")
+                    st.write(f"**Duration:** {workshop.duration}")
+                
+                with col2:
+                    st.write(f"**Price:** {'Free' if workshop.price == 0 else f'₹{workshop.price:,.0f}'}")
+                    st.write(f"**Seats:** {workshop.available_seats}/{workshop.max_seats}")
+                    st.write(f"**Mode:** {workshop.mode}")
+                    st.write(f"**Status:** {workshop.status}")
+                
+                with col3:
+                    if st.button(f"Edit", key=f"edit_{workshop.id}"):
+                        st.session_state[f'edit_workshop_{workshop.id}'] = True
+                        st.rerun()
+                    
+                    if st.button(f"Delete", key=f"delete_{workshop.id}"):
+                        success, message = wm.delete_workshop(workshop.id)
+                        if success:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+    
+    with tab2:
+        show_workshop_form()
+
+def show_workshop_form(workshop=None):
+    """Display workshop creation/editing form"""
+    is_edit = workshop is not None
+    
+    with st.form("workshop_form"):
+        st.subheader("Workshop Details")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            title = st.text_input("Title *", value=workshop.title if is_edit else "")
+            organizer = st.text_input("Organizer *", value=workshop.organizer if is_edit else "")
+            instructor = st.text_input("Instructor *", value=workshop.instructor if is_edit else "")
+            location = st.text_input("Location *", value=workshop.location if is_edit else "")
+            city = st.selectbox("City *", ["Mumbai", "Bangalore", "Delhi", "Chennai", "Pune", "Hyderabad"], 
+                               index=["Mumbai", "Bangalore", "Delhi", "Chennai", "Pune", "Hyderabad"].index(workshop.city) if is_edit else 0)
+        
+        with col2:
+            category = st.selectbox("Category *", ["Technology", "Marketing", "Design", "Finance", "Creative", "Business"],
+                                   index=["Technology", "Marketing", "Design", "Finance", "Creative", "Business"].index(workshop.category) if is_edit else 0)
+            level = st.selectbox("Level *", ["Beginner", "Intermediate", "Advanced"],
+                                index=["Beginner", "Intermediate", "Advanced"].index(workshop.level) if is_edit else 0)
+            duration = st.text_input("Duration *", value=workshop.duration if is_edit else "", placeholder="e.g., 3 hours")
+            price = st.number_input("Price (₹)", min_value=0.0, value=float(workshop.price) if is_edit else 0.0)
+            max_seats = st.number_input("Max Seats *", min_value=1, value=workshop.max_seats if is_edit else 50)
+        
+        workshop_date = st.date_input("Date *", value=workshop.date.date() if is_edit else date.today())
+        time = st.text_input("Time *", value=workshop.time if is_edit else "", placeholder="e.g., 10:00 AM")
+        description = st.text_area("Description", value=workshop.description if is_edit else "")
+        
+        mode = st.selectbox("Registration Mode", ["manual", "automated"], 
+                           index=["manual", "automated"].index(workshop.mode) if is_edit else 0)
+        
+        submitted = st.form_submit_button("Update Workshop" if is_edit else "Create Workshop")
+        
+        if submitted:
+            if all([title, organizer, instructor, location, city, category, level, duration, time, max_seats]):
+                workshop_data = {
+                    'title': title,
+                    'organizer': organizer,
+                    'instructor': instructor,
+                    'location': location,
+                    'city': city,
+                    'category': category,
+                    'level': level,
+                    'duration': duration,
+                    'price': price,
+                    'max_seats': max_seats,
+                    'date': workshop_date,
+                    'time': time,
+                    'description': description,
+                    'mode': mode
+                }
+                
+                if is_edit:
+                    success, message = wm.update_workshop(workshop.id, workshop_data)
+                else:
+                    success, message = wm.create_workshop(workshop_data, user.id)
+                
+                if success:
+                    st.success(message)
+                    st.rerun()
+                else:
+                    st.error(message)
+            else:
+                st.error("Please fill in all required fields (*)")
+
+def show_registration_management():
+    """Display registration management page"""
+    require_auth("admin")
+    
+    st.header("📝 Registration Management")
+    
+    tab1, tab2 = st.tabs(["Pending Approvals", "All Registrations"])
+    
+    with tab1:
+        pending_registrations = wm.get_pending_registrations()
+        
+        if pending_registrations:
+            st.subheader(f"⏳ {len(pending_registrations)} Pending Approvals")
+            
+            for registration in pending_registrations:
+                with st.expander(f"{registration.user.name} - {registration.workshop.title}"):
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.write(f"**User:** {registration.user.name}")
+                        st.write(f"**Email:** {registration.user.email}")
+                        st.write(f"**Phone:** {registration.user.phone or 'Not provided'}")
+                        st.write(f"**Registered:** {registration.registered_at.strftime('%Y-%m-%d %H:%M')}")
+                    
+                    with col2:
+                        st.write(f"**Workshop:** {registration.workshop.title}")
+                        st.write(f"**Price:** {'Free' if registration.workshop.price == 0 else f'₹{registration.workshop.price:,.0f}'}")
+                        st.write(f"**Status:** {registration.status.replace('_', ' ').title()}")
+                        st.write(f"**Payment Status:** {registration.payment_status.replace('_', ' ').title()}")
+                    
+                    with col3:
+                        if registration.notes:
+                            st.write(f"**Notes:** {registration.notes}")
+                        
+                        if registration.transaction_id:
+                            st.write(f"**Transaction ID:** {registration.transaction_id}")
+                        
+                        if registration.upi_id:
+                            st.write(f"**UPI ID:** {registration.upi_id}")
+                    
+                    # Admin actions
+                    st.subheader("Admin Actions")
+                    admin_notes = st.text_area("Admin Notes", key=f"notes_{registration.id}")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Approve", key=f"approve_{registration.id}"):
+                            success, message = wm.approve_registration(registration.id, admin_notes)
+                            if success:
+                                st.success(message)
+                                st.rerun()
+                            else:
+                                st.error(message)
+                    
+                    with col2:
+                        if st.button("❌ Reject", key=f"reject_{registration.id}"):
+                            success, message = wm.reject_registration(registration.id, admin_notes)
+                            if success:
+                                st.success(message)
+                                st.rerun()
+                            else:
+                                st.error(message)
+        else:
+            st.info("No pending registrations")
+    
+    with tab2:
+        # Show all registrations with filters
+        st.subheader("All Registrations")
+        
+        from database import Registration
+        db = wm.db
+        all_registrations = db.query(Registration).order_by(Registration.registered_at.desc()).limit(50).all()
+        
+        for registration in all_registrations:
+            status_class = f"status-{registration.status.replace('_', '-')}"
+            st.markdown(f'''
+            <div class="workshop-card">
+                <strong>{registration.user.name}</strong> - {registration.workshop.title}
+                <br><span class="status-badge {status_class}">{registration.status.replace('_', ' ').title()}</span>
+                <br>Registered: {registration.registered_at.strftime('%Y-%m-%d %H:%M')}
+            </div>
+            ''', unsafe_allow_html=True)
+
+def show_user_management():
+    """Display user management page"""
+    require_auth("admin")
+    
+    st.header("👥 User Management")
+    
+    from database import User
+    db = wm.db
+    
+    # Get users
+    users = db.query(User).order_by(User.created_at.desc()).limit(100).all()
+    
+    # Display users in a table
+    user_data = []
+    for user_item in users:
+        user_data.append({
+            'ID': user_item.id,
+            'Name': user_item.name,
+            'Email': user_item.email,
+            'Phone': user_item.phone or '',
+            'Role': user_item.role,
+            'Status': 'Active' if user_item.is_active else 'Inactive',
+            'Registered': user_item.created_at.strftime('%Y-%m-%d')
+        })
+    
+    df = pd.DataFrame(user_data)
+    st.dataframe(df, use_container_width=True)
+
+def show_my_registrations():
+    """Display user's registrations"""
+    user = require_auth()
+    
+    st.header("📝 My Registrations")
+    
+    registrations = wm.get_user_registrations(user.id)
+    
+    if registrations:
+        for registration in registrations:
+            workshop = registration.workshop
+            
+            st.markdown('<div class="workshop-card">', unsafe_allow_html=True)
+            
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col1:
+                st.subheader(workshop.title)
+                st.write(f"👨‍🏫 **Instructor:** {workshop.instructor}")
+                st.write(f"📍 **Location:** {workshop.location}, {workshop.city}")
+                st.write(f"📅 **Date:** {workshop.date.strftime('%Y-%m-%d')}")
+                st.write(f"⏰ **Time:** {workshop.time}")
+            
+            with col2:
+                status_class = f"status-{registration.status.replace('_', '-')}"
+                st.markdown(f'<span class="status-badge {status_class}">{registration.status.replace("_", " ").title()}</span>', 
+                           unsafe_allow_html=True)
+                st.write(f"**Registered:** {registration.registered_at.strftime('%Y-%m-%d')}")
+                if registration.confirmed_at:
+                    st.write(f"**Confirmed:** {registration.confirmed_at.strftime('%Y-%m-%d')}")
+            
+            with col3:
+                if workshop.price > 0:
+                    st.write(f"**Price:** ₹{workshop.price:,.0f}")
+                    st.write(f"**Payment:** {registration.payment_status.replace('_', ' ').title()}")
+                else:
+                    st.write("**Price:** Free")
+                
+                if registration.admin_notes:
+                    st.write(f"**Admin Notes:** {registration.admin_notes}")
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.info("You haven't registered for any workshops yet.")
+
+def show_user_profile():
+    """Display user profile page"""
+    user = require_auth()
+    
+    st.header("👤 My Profile")
+    
+    with st.form("profile_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            name = st.text_input("Name", value=user.name)
+            email = st.text_input("Email", value=user.email, disabled=True)
+        
+        with col2:
+            phone = st.text_input("Phone", value=user.phone or "")
+            # Add password change option
+            change_password = st.checkbox("Change Password")
+        
+        if change_password:
+            current_password = st.text_input("Current Password", type="password")
+            new_password = st.text_input("New Password", type="password")
+            confirm_password = st.text_input("Confirm New Password", type="password")
+        
+        submitted = st.form_submit_button("Update Profile")
+        
+        if submitted:
+            # Update profile logic here
+            st.success("Profile updated successfully!")
+
+# Page routing based on user authentication and role
+if not user:
+    show_workshop_browse_page()
+elif user.role == "admin":
+    if page == "Dashboard":
+        show_admin_dashboard()
+    elif page == "Workshop Management":
+        show_workshop_management()
+    elif page == "Registration Management":
+        show_registration_management()
+    elif page == "User Management":
+        show_user_management()
+else:
+    if page == "Browse Workshops":
+        show_workshop_browse_page()
+    elif page == "My Registrations":
+        show_my_registrations()
+    elif page == "Profile":
+        show_user_profile()
+
+wm.close()

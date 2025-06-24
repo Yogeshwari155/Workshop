@@ -1,100 +1,111 @@
-# Creative Data Studio
+# Workshop Booking Platform
 
 ## Overview
 
-Creative Data Studio is a Streamlit-based web application for interactive data visualization and analysis. The application provides a user-friendly interface for uploading datasets in various formats (CSV, JSON, Excel) and creating dynamic, shareable visualizations using Plotly. The system includes both a main Streamlit interface and a Flask-based API server for programmatic access and data sharing capabilities.
+Workshop Booking Platform is a comprehensive Streamlit-based web application for workshop discovery, registration, and management. The platform serves both regular users who can browse and register for workshops, and administrators who can create workshops, manage registrations, and oversee the entire system. The application includes user authentication, role-based access control, PostgreSQL database integration, and automated/manual registration workflows.
 
 ## System Architecture
 
-The application follows a modular, component-based architecture with clear separation of concerns:
+The application follows a modular, database-driven architecture with clear separation of concerns:
 
-- **Frontend**: Streamlit web interface providing an intuitive dashboard for data upload, visualization, and export
-- **Backend**: Flask API server for RESTful endpoints and data sharing functionality
-- **Data Processing**: Pandas-based data handling with support for multiple file formats
-- **Visualization Engine**: Plotly-powered interactive chart generation with multiple chart types and themes
-- **Utility Layer**: Export functionality and shareable link generation
+- **Frontend**: Streamlit web interface with role-based navigation for users and administrators
+- **Authentication**: JWT-based user authentication with bcrypt password hashing
+- **Database**: PostgreSQL database with SQLAlchemy ORM for data persistence
+- **Workshop Management**: Comprehensive CRUD operations for workshops with filtering and search
+- **Registration System**: Automated and manual registration workflows with payment tracking
+- **Admin Panel**: Complete administrative interface for workshop and user management
 
-The architecture prioritizes modularity and extensibility, allowing for easy addition of new chart types, data sources, and export formats.
+The architecture prioritizes security, scalability, and ease of management, with clear separation between user and admin functionalities.
 
 ## Key Components
 
 ### 1. Main Application (`app.py`)
-- **Purpose**: Primary Streamlit interface and application orchestration
-- **Responsibilities**: UI layout, component integration, session state management
-- **Design Decision**: Streamlit chosen for rapid prototyping and built-in interactivity features
+- **Purpose**: Primary Streamlit interface with role-based navigation
+- **Responsibilities**: UI layout, authentication flow, page routing, user experience
+- **Design Decision**: Function-based page structure for maintainability and clear separation
 
-### 2. Data Handler (`data_handler.py`)
-- **Purpose**: Data ingestion and preprocessing
-- **Supported Formats**: CSV, JSON, Excel (xlsx/xls)
-- **Features**: Automatic delimiter detection for CSV, error handling, data validation
-- **Design Decision**: Pandas used as the core data manipulation library for its robust file format support
+### 2. Database Layer (`database.py`)
+- **Purpose**: SQLAlchemy models and database configuration
+- **Models**: User, Workshop, Registration, Tag with proper relationships
+- **Features**: PostgreSQL integration, timezone-aware timestamps, bcrypt password hashing
+- **Design Decision**: SQLAlchemy ORM chosen for type safety and relationship management
 
-### 3. Visualization Engine (`visualization.py`)
-- **Purpose**: Chart creation and customization
-- **Chart Types**: Scatter, line, bar, histogram, box plots, pie charts, heatmaps, 3D scatter
-- **Features**: Multiple color themes, interactive controls, responsive design
-- **Design Decision**: Plotly selected for its interactive capabilities and web-native rendering
+### 3. Authentication System (`auth.py`)
+- **Purpose**: User authentication and authorization
+- **Features**: JWT tokens, password hashing, role-based access control
+- **Security**: Secure session management, token verification
+- **Design Decision**: JWT for stateless authentication with role-based permissions
 
-### 4. API Server (`api_endpoints.py`)
-- **Purpose**: RESTful API for programmatic access and data sharing
-- **Endpoints**: Health check, data upload, visualization sharing
-- **Features**: CORS support, multi-format data acceptance, visualization storage
-- **Design Decision**: Flask chosen for lightweight API implementation with easy CORS integration
+### 4. Workshop Manager (`workshop_manager.py`)
+- **Purpose**: Core business logic for workshop and registration management
+- **Features**: CRUD operations, filtering, search, registration workflows
+- **Registration Modes**: Manual (admin approval) and automated (instant confirmation)
+- **Design Decision**: Centralized business logic for consistency and reusability
 
-### 5. Utilities (`utils.py`)
-- **Purpose**: Export functionality and link sharing
-- **Export Formats**: PNG, PDF, HTML, JSON
-- **Features**: Base64 encoding, shareable link generation
-- **Design Decision**: Modular utility functions for reusability across components
+### 5. Sample Data (`sample_data.py`)
+- **Purpose**: Initial workshop data for demonstration
+- **Content**: 5 sample workshops across different categories and cities
+- **Features**: Realistic workshop data with proper scheduling and pricing
+- **Design Decision**: Separate script for easy data seeding and testing
 
 ## Data Flow
 
-1. **Data Upload**: Users upload files through Streamlit interface
-2. **Data Processing**: DataHandler validates and loads data into pandas DataFrame
-3. **Visualization Creation**: VisualizationEngine generates interactive charts based on user selections
-4. **Export/Sharing**: Users can export visualizations or generate shareable links via API
-5. **API Access**: External systems can upload data and retrieve visualizations via Flask endpoints
+1. **User Registration/Login**: Users create accounts or login through authentication system
+2. **Workshop Discovery**: Users browse workshops with filtering and search capabilities
+3. **Registration Process**: Users register for workshops with payment tracking for paid events
+4. **Admin Management**: Administrators create workshops and manage registrations
+5. **Approval Workflow**: Manual workshops require admin approval, automated workshops confirm instantly
+6. **User Dashboard**: Users track their registrations and workshop status
 
 ## External Dependencies
 
 ### Core Libraries
 - **Streamlit** (^1.46.0): Web application framework
-- **Pandas** (^2.3.0): Data manipulation and analysis
-- **Plotly** (^6.1.2): Interactive visualization library
-- **Flask** (^3.1.1): API server framework
-- **NumPy** (^2.3.1): Numerical computing support
+- **SQLAlchemy** (^2.0.41): Database ORM and query builder
+- **psycopg2-binary** (^2.9.10): PostgreSQL database adapter
+- **bcrypt** (^4.3.0): Password hashing for security
+- **python-jose** (^3.5.0): JWT token handling
+- **Pandas** (^2.3.0): Data manipulation for reporting
 
 ### Supporting Libraries
-- **Flask-CORS** (^6.0.1): Cross-origin resource sharing
-- **Kaleido** (^1.0.0): Static image export for Plotly
-- **OpenPyXL** (^3.1.5): Excel file support
-- **Requests** (^2.32.4): HTTP client library
+- **cryptography** (^45.0.4): Cryptographic operations for JWT
+- **greenlet** (^3.2.3): Async support for SQLAlchemy
+- **pycparser** (^2.22): C parser for cryptography
 
 ### Rationale
-Dependencies were chosen to balance functionality, performance, and ecosystem maturity. Plotly provides superior interactivity compared to matplotlib, while Streamlit offers rapid development capabilities for data applications.
+Dependencies were chosen for security, reliability, and PostgreSQL integration. SQLAlchemy provides robust ORM capabilities, bcrypt ensures secure password storage, and JWT enables stateless authentication suitable for web applications.
 
 ## Deployment Strategy
 
 ### Replit Configuration
 - **Runtime**: Python 3.11 on Nix stable-24_05
+- **Database**: Built-in PostgreSQL with automatic environment variables
 - **Deployment Target**: Autoscale for automatic scaling
 - **Port Configuration**: Streamlit runs on port 5000
-- **Parallel Workflows**: Supports concurrent task execution
+- **Security**: Environment-based secrets management
 
 ### Deployment Process
-1. Application runs via Streamlit server on port 5000
-2. Flask API server can be started independently for API access
-3. Autoscale deployment handles traffic management
-4. Static assets served directly by Streamlit
+1. Database tables automatically created on first run
+2. Default admin user created (admin@workshop.com / admin123)
+3. Sample workshops loaded for demonstration
+4. Application runs via Streamlit server on port 5000
+5. PostgreSQL handles data persistence with proper relationships
 
 ### Design Decision
-Streamlit's built-in server chosen for simplicity and rapid deployment. The autoscale target ensures the application can handle varying loads without manual intervention.
+Streamlit with PostgreSQL backend chosen for production-ready workshop management. Built-in database ensures data persistence and enables complex queries for filtering and reporting.
 
 ## Changelog
 
 ```
 Changelog:
-- June 24, 2025. Initial setup
+- June 24, 2025: Transformed from data visualization tool to workshop booking platform
+- June 24, 2025: Implemented user authentication with JWT and bcrypt
+- June 24, 2025: Added PostgreSQL database with Workshop, User, Registration models
+- June 24, 2025: Created admin panel for workshop and registration management
+- June 24, 2025: Implemented automated and manual registration workflows
+- June 24, 2025: Added comprehensive filtering and search for workshop discovery
+- June 24, 2025: Created role-based access control (admin vs user)
+- June 24, 2025: Added sample data and default admin user
 ```
 
 ## User Preferences
