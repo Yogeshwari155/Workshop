@@ -21,7 +21,7 @@ class WorkshopManager:
         except:
             pass
     
-    def create_workshop(self, workshop_data: dict, organizer_user_id: int = None) -> tuple[bool, str]:
+    def create_workshop(self, workshop_data: dict, organizer_user_id: int) -> tuple[bool, str]:
         """Create a new workshop"""
         try:
             # Parse date and time
@@ -91,12 +91,16 @@ class WorkshopManager:
             self.db.rollback()
             return False, f"Error updating workshop: {str(e)}"
     
-    def delete_workshop(self, workshop_id: int) -> tuple[bool, str]:
-        """Delete a workshop"""
+    def delete_workshop(self, workshop_id: int, user_id: int = None, user_role: str = None) -> tuple[bool, str]:
+        """Delete a workshop with permission checking"""
         try:
             workshop = self.db.query(Workshop).filter(Workshop.id == workshop_id).first()
             if not workshop:
                 return False, "Workshop not found"
+            
+            # Check permissions
+            if user_role == "enterprise" and workshop.organizer_user_id != user_id:
+                return False, "You can only delete your own workshops"
             
             # Check if there are any registrations
             registrations_count = self.db.query(Registration).filter(
@@ -147,6 +151,10 @@ class WorkshopManager:
                     query = query.filter(Workshop.price == 0)
                 elif filters['price_filter'] == 'Paid':
                     query = query.filter(Workshop.price > 0)
+            
+            # Filter by organizer (for enterprise users)
+            if filters.get('organizer_user_id'):
+                query = query.filter(Workshop.organizer_user_id == filters['organizer_user_id'])
         
         # Sorting
         sort_by = filters.get('sort_by', 'created_at') if filters else 'created_at'

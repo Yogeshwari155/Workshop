@@ -106,6 +106,10 @@ Changelog:
 - June 24, 2025: Added comprehensive filtering and search for workshop discovery
 - June 24, 2025: Created role-based access control (admin vs user)
 - June 24, 2025: Added sample data and default admin user
+- June 24, 2025: Enhanced with multi-role architecture (User, Enterprise, Admin)
+- June 24, 2025: Added enterprise dashboard and workshop management capabilities
+- June 24, 2025: Implemented functional edit operations for workshops
+- June 24, 2025: Added enterprise registration management and approval system
 ```
 
 ## User Preferences

@@ -33,7 +33,7 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     phone = Column(String(20), nullable=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(String(20), default="user")  # user, admin, organizer
+    role = Column(String(20), default="user")  # user, admin, enterprise
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -56,7 +56,7 @@ class Workshop(Base):
     title = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     organizer = Column(String(100), nullable=False)
-    organizer_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    organizer_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     instructor = Column(String(100), nullable=False)
     date = Column(DateTime(timezone=True), nullable=False)
     time = Column(String(20), nullable=False)
@@ -80,7 +80,7 @@ class Workshop(Base):
     
     # Relationships
     organizer_user = relationship("User", back_populates="organized_workshops")
-    registrations = relationship("Registration", back_populates="workshop")
+    registrations = relationship("Registration", back_populates="workshop", cascade="all, delete-orphan")
     tags = relationship("Tag", secondary=workshop_tags, back_populates="workshops")
 
 class Tag(Base):

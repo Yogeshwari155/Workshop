@@ -1,0 +1,109 @@
+You're describing a **multi-role web platform** that acts as a third party between **enterprises (organizers)** and **users (participants)** — like a centralized **workshop hosting and registration platform**.
+
+Let’s define each user type, their role, and what they can access/do:
+
+---
+
+## 🎭 USER ROLES & ACCESS
+
+### 👤 1. **User / Participant**
+
+#### 🔐 Access:
+
+* Login / Signup (user account)
+* View available workshops (with filters/search)
+* View workshop details (date, time, mode, price, etc.)
+* Register for workshops
+
+  * **Manual Mode**: Sends request to enterprise/admin
+  * **Automated Mode**: If free, confirm; if paid, pay + submit screenshot
+* View registration status (pending/confirmed)
+* Download confirmation/tickets (if any)
+
+#### 🛠 Permissions:
+
+* Can only register, view their own profile and registrations.
+* Cannot create or manage workshops.
+
+---
+
+### 🏢 2. **Enterprise / Organizer**
+
+#### 🔐 Access:
+
+* Login / Signup (enterprise account)
+* Dashboard for managing their own workshops
+* Create/edit/delete workshops
+* Set registration type: manual or automated
+* Set payment options (free or paid)
+* View list of users who registered
+* Approve/reject users (if manual mode)
+* See payment proofs (screenshots) uploaded
+* Export registrations as CSV/PDF
+
+#### 🛠 Permissions:
+
+* Manage only their own workshops
+* Can’t access other enterprise workshops
+* Can’t manage users globally
+
+---
+
+### 👨‍💻 3. **Admin (You / Platform Owner)**
+
+#### 🔐 Access:
+
+* Full access to everything
+* View all users and enterprises
+* Approve enterprise accounts (optional)
+* Delete/edit any workshop
+* Manage website content (FAQs, terms, etc.)
+* Ban/unban users or enterprises
+* View global analytics (users per workshop, earnings, etc.)
+
+#### 🛠 Permissions:
+
+* God-mode access; can override any action
+* Control the entire system's data and flow
+
+---
+
+## 🌐 Platform Flow Summary
+
+```text
+[User]         ↔️  Registers for ↔️  [Workshop by Enterprise]
+     ↘                              ↙
+       [Platform (You)] validates, processes, stores, and supports
+```
+
+---
+
+## 🧱 Suggested Folder/Architecture Layout
+
+```
+/frontend
+  /pages
+    /enterprise
+    /user
+    /admin
+/backend
+  /routes
+    - userRoutes.js
+    - enterpriseRoutes.js
+    - adminRoutes.js
+  /models
+    - User.js
+    - Enterprise.js
+    - Workshop.js
+    - Registration.js
+```
+
+---
+
+Would you like me to:
+
+* Design the database schema?
+* Build this as a new full-stack app (Next.js + Express)?
+* Or add this multi-role feature to your current project?
+
+Let me know how you'd like to proceed!

@@ -64,7 +64,12 @@ if user:
     if user.role == "admin":
         page = st.sidebar.selectbox(
             "Navigation", 
-            ["Dashboard", "Workshop Management", "Registration Management", "User Management"]
+            ["Dashboard", "Workshop Management", "Registration Management", "User Management", "Enterprise Management"]
+        )
+    elif user.role == "enterprise":
+        page = st.sidebar.selectbox(
+            "Navigation", 
+            ["My Dashboard", "My Workshops", "My Registrations", "Create Workshop", "Profile"]
         )
     else:
         page = st.sidebar.selectbox(
@@ -312,7 +317,7 @@ def show_workshop_management():
                 
                 with col3:
                     if st.button(f"Edit", key=f"edit_{workshop.id}"):
-                        st.session_state[f'edit_workshop_{workshop.id}'] = True
+                        st.session_state[f'edit_workshop_{workshop.id}'] = workshop
                         st.rerun()
                     
                     if st.button(f"Delete", key=f"delete_{workshop.id}"):
@@ -322,15 +327,23 @@ def show_workshop_management():
                             st.rerun()
                         else:
                             st.error(message)
+                
+                # Show edit form if edit button was clicked
+                if st.session_state.get(f'edit_workshop_{workshop.id}'):
+                    st.subheader(f"Edit Workshop: {workshop.title}")
+                    show_workshop_form(workshop=st.session_state[f'edit_workshop_{workshop.id}'], form_key=f"edit_{workshop.id}")
+                    if st.button("Cancel Edit", key=f"cancel_edit_{workshop.id}"):
+                        del st.session_state[f'edit_workshop_{workshop.id}']
+                        st.rerun()
     
     with tab2:
         show_workshop_form()
 
-def show_workshop_form(workshop=None):
+def show_workshop_form(workshop=None, form_key="workshop_form"):
     """Display workshop creation/editing form"""
     is_edit = workshop is not None
     
-    with st.form("workshop_form"):
+    with st.form(form_key):
         st.subheader("Workshop Details")
         
         col1, col2 = st.columns(2)
@@ -382,6 +395,8 @@ def show_workshop_form(workshop=None):
                 
                 if is_edit:
                     success, message = wm.update_workshop(workshop.id, workshop_data)
+                    if success and f'edit_workshop_{workshop.id}' in st.session_state:
+                        del st.session_state[f'edit_workshop_{workshop.id}']
                 else:
                     success, message = wm.create_workshop(workshop_data, user.id)
                 
@@ -504,6 +519,230 @@ def show_user_management():
     df = pd.DataFrame(user_data)
     st.dataframe(df, use_container_width=True)
 
+def show_enterprise_management():
+    """Display enterprise management page for admins"""
+    require_auth("admin")
+    
+    st.header("🏢 Enterprise Management")
+    
+    from database import User
+    db = wm.db
+    
+    # Get all enterprise users
+    enterprises = db.query(User).filter(User.role == "enterprise").order_by(User.created_at.desc()).all()
+    
+    if enterprises:
+        for enterprise in enterprises:
+            with st.expander(f"{enterprise.name} - {enterprise.email} ({'Active' if enterprise.is_active else 'Inactive'})"):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write(f"**Name:** {enterprise.name}")
+                    st.write(f"**Email:** {enterprise.email}")
+                    st.write(f"**Phone:** {enterprise.phone or 'Not provided'}")
+                    st.write(f"**Registered:** {enterprise.created_at.strftime('%Y-%m-%d')}")
+                
+                with col2:
+                    workshops_count = db.query(Workshop).filter(Workshop.organizer_user_id == enterprise.id).count()
+                    st.write(f"**Workshops Created:** {workshops_count}")
+                    st.write(f"**Status:** {'Active' if enterprise.is_active else 'Inactive'}")
+                
+                with col3:
+                    if enterprise.is_active:
+                        if st.button(f"Deactivate", key=f"deactivate_{enterprise.id}"):
+                            enterprise.is_active = False
+                            db.commit()
+                            st.success("Enterprise deactivated")
+                            st.rerun()
+                    else:
+                        if st.button(f"Activate", key=f"activate_{enterprise.id}"):
+                            enterprise.is_active = True
+                            db.commit()
+                            st.success("Enterprise activated")
+                            st.rerun()
+    else:
+        st.info("No enterprise accounts found")
+
+def show_enterprise_dashboard():
+    """Display enterprise dashboard"""
+    user = require_auth("enterprise")
+    
+    if not user.is_active:
+        st.warning("Your enterprise account is pending admin approval. Please contact support if this takes too long.")
+        return
+    
+    st.header("🏢 Enterprise Dashboard")
+    
+    # Get enterprise statistics
+    db = wm.db
+    total_workshops = db.query(Workshop).filter(Workshop.organizer_user_id == user.id).count()
+    active_workshops = db.query(Workshop).filter(
+        Workshop.organizer_user_id == user.id, Workshop.status == "active"
+    ).count()
+    
+    total_registrations = db.query(Registration).join(Workshop).filter(
+        Workshop.organizer_user_id == user.id
+    ).count()
+    
+    confirmed_registrations = db.query(Registration).join(Workshop).filter(
+        Workshop.organizer_user_id == user.id, Registration.status == "confirmed"
+    ).count()
+    
+    # Display metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Workshops", total_workshops)
+    with col2:
+        st.metric("Active Workshops", active_workshops)
+    with col3:
+        st.metric("Total Registrations", total_registrations)
+    with col4:
+        st.metric("Confirmed Registrations", confirmed_registrations)
+    
+    # Recent workshops
+    st.subheader("Recent Workshops")
+    recent_workshops = db.query(Workshop).filter(
+        Workshop.organizer_user_id == user.id
+    ).order_by(Workshop.created_at.desc()).limit(5).all()
+    
+    for workshop in recent_workshops:
+        st.write(f"• {workshop.title} - {workshop.city} ({workshop.status})")
+
+def show_enterprise_workshops():
+    """Display enterprise workshops management"""
+    user = require_auth("enterprise")
+    
+    if not user.is_active:
+        st.warning("Your enterprise account is pending admin approval.")
+        return
+    
+    st.header("🎓 My Workshops")
+    
+    # Get enterprise workshops
+    filters = {'organizer_user_id': user.id}
+    workshops_data = wm.get_workshops(filters, per_page=50)
+    workshops = workshops_data['workshops']
+    
+    if workshops:
+        for workshop in workshops:
+            with st.expander(f"{workshop.title} - {workshop.city} ({workshop.status})"):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write(f"**Date:** {workshop.date.strftime('%Y-%m-%d')}")
+                    st.write(f"**Time:** {workshop.time}")
+                    st.write(f"**Duration:** {workshop.duration}")
+                    st.write(f"**Level:** {workshop.level}")
+                
+                with col2:
+                    st.write(f"**Price:** {'Free' if workshop.price == 0 else f'₹{workshop.price:,.0f}'}")
+                    st.write(f"**Seats:** {workshop.available_seats}/{workshop.max_seats}")
+                    st.write(f"**Mode:** {workshop.mode}")
+                    st.write(f"**Category:** {workshop.category}")
+                
+                with col3:
+                    registrations_count = len(workshop.registrations)
+                    st.write(f"**Registrations:** {registrations_count}")
+                    
+                    if st.button(f"Edit", key=f"edit_ent_{workshop.id}"):
+                        st.session_state[f'edit_workshop_{workshop.id}'] = workshop
+                        st.rerun()
+                    
+                    if st.button(f"Delete", key=f"delete_ent_{workshop.id}"):
+                        success, message = wm.delete_workshop(workshop.id)
+                        if success:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+                
+                # Show edit form if edit button was clicked
+                if st.session_state.get(f'edit_workshop_{workshop.id}'):
+                    st.subheader(f"Edit Workshop: {workshop.title}")
+                    show_workshop_form(workshop=st.session_state[f'edit_workshop_{workshop.id}'], form_key=f"edit_ent_{workshop.id}")
+                    if st.button("Cancel Edit", key=f"cancel_edit_ent_{workshop.id}"):
+                        del st.session_state[f'edit_workshop_{workshop.id}']
+                        st.rerun()
+    else:
+        st.info("You haven't created any workshops yet. Use the 'Create Workshop' page to get started.")
+
+def show_enterprise_registrations():
+    """Display registrations for enterprise workshops"""
+    user = require_auth("enterprise")
+    
+    if not user.is_active:
+        st.warning("Your enterprise account is pending admin approval.")
+        return
+    
+    st.header("📝 Workshop Registrations")
+    
+    # Get all registrations for this enterprise's workshops
+    db = wm.db
+    registrations = db.query(Registration).join(Workshop).filter(
+        Workshop.organizer_user_id == user.id
+    ).order_by(Registration.registered_at.desc()).all()
+    
+    if registrations:
+        # Filter options
+        col1, col2 = st.columns(2)
+        with col1:
+            status_filter = st.selectbox("Filter by Status", ["All", "pending", "confirmed", "rejected"])
+        with col2:
+            workshop_titles = list(set([reg.workshop.title for reg in registrations]))
+            workshop_filter = st.selectbox("Filter by Workshop", ["All Workshops"] + workshop_titles)
+        
+        # Apply filters
+        filtered_registrations = registrations
+        if status_filter != "All":
+            filtered_registrations = [r for r in filtered_registrations if r.status == status_filter]
+        if workshop_filter != "All Workshops":
+            filtered_registrations = [r for r in filtered_registrations if r.workshop.title == workshop_filter]
+        
+        for registration in filtered_registrations:
+            with st.expander(f"{registration.user.name} - {registration.workshop.title}"):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.write(f"**User:** {registration.user.name}")
+                    st.write(f"**Email:** {registration.user.email}")
+                    st.write(f"**Phone:** {registration.user.phone or 'Not provided'}")
+                    st.write(f"**Registered:** {registration.registered_at.strftime('%Y-%m-%d %H:%M')}")
+                
+                with col2:
+                    st.write(f"**Workshop:** {registration.workshop.title}")
+                    st.write(f"**Status:** {registration.status.replace('_', ' ').title()}")
+                    if registration.notes:
+                        st.write(f"**Notes:** {registration.notes}")
+                
+                with col3:
+                    if registration.transaction_id:
+                        st.write(f"**Transaction ID:** {registration.transaction_id}")
+                    if registration.upi_id:
+                        st.write(f"**UPI ID:** {registration.upi_id}")
+                    
+                    # Action buttons for manual workshops
+                    if registration.workshop.mode == "manual" and registration.status == "pending":
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            if st.button("✅ Approve", key=f"approve_ent_{registration.id}"):
+                                success, message = wm.approve_registration(registration.id)
+                                if success:
+                                    st.success(message)
+                                    st.rerun()
+                                else:
+                                    st.error(message)
+                        with col_b:
+                            if st.button("❌ Reject", key=f"reject_ent_{registration.id}"):
+                                success, message = wm.reject_registration(registration.id)
+                                if success:
+                                    st.success(message)
+                                    st.rerun()
+                                else:
+                                    st.error(message)
+    else:
+        st.info("No registrations found for your workshops yet.")
+
 def show_my_registrations():
     """Display user's registrations"""
     user = require_auth()
@@ -590,6 +829,19 @@ elif user.role == "admin":
         show_registration_management()
     elif page == "User Management":
         show_user_management()
+    elif page == "Enterprise Management":
+        show_enterprise_management()
+elif user.role == "enterprise":
+    if page == "My Dashboard":
+        show_enterprise_dashboard()
+    elif page == "My Workshops":
+        show_enterprise_workshops()
+    elif page == "My Registrations":
+        show_enterprise_registrations()
+    elif page == "Create Workshop":
+        show_workshop_form()
+    elif page == "Profile":
+        show_user_profile()
 else:
     if page == "Browse Workshops":
         show_workshop_browse_page()

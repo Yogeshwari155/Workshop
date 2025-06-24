@@ -37,7 +37,7 @@ def authenticate_user(email: str, password: str) -> Optional[User]:
     finally:
         db.close()
 
-def register_user(name: str, email: str, password: str, phone: str = None) -> tuple[bool, str]:
+def register_user(name: str, email: str, password: str, phone: str = None, role: str = "user") -> tuple[bool, str]:
     db = SessionLocal()
     try:
         # Check if user already exists
@@ -51,11 +51,11 @@ def register_user(name: str, email: str, password: str, phone: str = None) -> tu
             email=email,
             password_hash=User.hash_password(password),
             phone=phone,
-            role="user"
+            role=role
         )
         db.add(user)
         db.commit()
-        return True, "User registered successfully"
+        return True, f"{role.title()} registered successfully"
     except Exception as e:
         db.rollback()
         return False, f"Registration failed: {str(e)}"
@@ -124,11 +124,19 @@ def register_form():
     """Display registration form"""
     with st.form("register_form"):
         st.subheader("Register")
-        name = st.text_input("Full Name")
+        
+        # Account type selection
+        account_type = st.selectbox("Account Type", ["User", "Enterprise"], help="Select 'Enterprise' if you want to create and manage workshops")
+        
+        name = st.text_input("Full Name" if account_type == "User" else "Company/Organization Name")
         email = st.text_input("Email")
         phone = st.text_input("Phone Number (optional)")
         password = st.text_input("Password", type="password")
         confirm_password = st.text_input("Confirm Password", type="password")
+        
+        if account_type == "Enterprise":
+            st.info("Enterprise accounts can create and manage workshops. They will need admin approval to be activated.")
+        
         submit_button = st.form_submit_button("Register")
         
         if submit_button:
@@ -139,10 +147,14 @@ def register_form():
             elif len(password) < 6:
                 st.error("Password must be at least 6 characters long")
             else:
-                success, message = register_user(name, email, password, phone)
+                role = "enterprise" if account_type == "Enterprise" else "user"
+                success, message = register_user(name, email, password, phone, role)
                 if success:
                     st.success(message)
-                    st.info("Please login with your credentials")
+                    if role == "enterprise":
+                        st.info("Your enterprise account is pending admin approval. You'll be notified once approved.")
+                    else:
+                        st.info("Please login with your credentials")
                 else:
                     st.error(message)
 
