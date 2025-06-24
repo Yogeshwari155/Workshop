@@ -5,7 +5,7 @@ import json
 from typing import List
 
 # Import our modules
-from database import create_tables, init_admin_user
+from database import create_tables, init_admin_user, Workshop, Registration, User
 from auth import auth_sidebar, get_current_user, require_auth, logout
 from workshop_manager import WorkshopManager
 
@@ -342,6 +342,7 @@ def show_workshop_management():
 def show_workshop_form(workshop=None, form_key="workshop_form"):
     """Display workshop creation/editing form"""
     is_edit = workshop is not None
+    current_user = get_current_user()
     
     with st.form(form_key):
         st.subheader("Workshop Details")
@@ -350,7 +351,9 @@ def show_workshop_form(workshop=None, form_key="workshop_form"):
         
         with col1:
             title = st.text_input("Title *", value=workshop.title if is_edit else "")
-            organizer = st.text_input("Organizer *", value=workshop.organizer if is_edit else "")
+            # Auto-fill organizer for enterprise users
+            default_organizer = current_user.name if current_user and current_user.role == "enterprise" else (workshop.organizer if is_edit else "")
+            organizer = st.text_input("Organizer *", value=default_organizer)
             instructor = st.text_input("Instructor *", value=workshop.instructor if is_edit else "")
             location = st.text_input("Location *", value=workshop.location if is_edit else "")
             city = st.selectbox("City *", ["Mumbai", "Bangalore", "Delhi", "Chennai", "Pune", "Hyderabad"], 
@@ -398,7 +401,7 @@ def show_workshop_form(workshop=None, form_key="workshop_form"):
                     if success and f'edit_workshop_{workshop.id}' in st.session_state:
                         del st.session_state[f'edit_workshop_{workshop.id}']
                 else:
-                    success, message = wm.create_workshop(workshop_data, user.id)
+                    success, message = wm.create_workshop(workshop_data, current_user.id)
                 
                 if success:
                     st.success(message)
@@ -477,7 +480,6 @@ def show_registration_management():
         # Show all registrations with filters
         st.subheader("All Registrations")
         
-        from database import Registration
         db = wm.db
         all_registrations = db.query(Registration).order_by(Registration.registered_at.desc()).limit(50).all()
         
@@ -525,7 +527,6 @@ def show_enterprise_management():
     
     st.header("🏢 Enterprise Management")
     
-    from database import User
     db = wm.db
     
     # Get all enterprise users

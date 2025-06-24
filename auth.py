@@ -45,13 +45,15 @@ def register_user(name: str, email: str, password: str, phone: str = None, role:
         if existing_user:
             return False, "User with this email already exists"
         
-        # Create new user
+        # Create new user with appropriate status
+        is_active = True if role == "user" else False  # Enterprise accounts need approval
         user = User(
             name=name,
             email=email,
             password_hash=User.hash_password(password),
             phone=phone,
-            role=role
+            role=role,
+            is_active=is_active
         )
         db.add(user)
         db.commit()
