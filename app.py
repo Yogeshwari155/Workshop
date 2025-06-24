@@ -8,6 +8,7 @@ from typing import List
 from database import create_tables, init_admin_user, Workshop, Registration, User
 from auth import auth_sidebar, get_current_user, require_auth, logout
 from workshop_manager import WorkshopManager
+from file_handler import save_uploaded_file, display_image, encode_image_to_base64
 
 # Initialize database with error handling
 try:
@@ -198,25 +199,56 @@ def show_registration_form(workshop):
             
             if workshop.price > 0:
                 st.subheader("Payment Details")
+                
+                # Display organizer UPI ID if available
+                if workshop.organizer_upi_id:
+                    st.success(f"Pay to: {workshop.organizer_upi_id}")
+                    st.info(f"Amount: ₹{workshop.price:,.0f}")
+                
                 payment_method = st.selectbox("Payment Method", ["UPI", "Bank Transfer"])
                 
                 if payment_method == "UPI":
-                    upi_id = st.text_input("UPI ID", placeholder="your-upi@paytm")
+                    upi_id = st.text_input("Your UPI ID", placeholder="your-upi@paytm")
                     transaction_id = st.text_input("Transaction ID", placeholder="Enter transaction ID after payment")
-                    st.info(f"Please pay ₹{workshop.price:,.0f} to organizer's UPI and enter transaction details")
                 else:
                     transaction_id = st.text_input("Transaction Reference", placeholder="Bank transfer reference")
-                    st.info("Bank details will be shared after registration")
+                
+                # Payment screenshot upload
+                st.subheader("Upload Payment Screenshot")
+                payment_screenshot = st.file_uploader(
+                    "Upload payment screenshot", 
+                    type=['png', 'jpg', 'jpeg'],
+                    help="Upload a clear screenshot of your payment confirmation"
+                )
+                
+                if payment_screenshot:
+                    st.image(payment_screenshot, width=200)
+                    st.success("Screenshot uploaded successfully")
         
         submitted = st.form_submit_button("Submit Registration")
         
         if submitted:
+            # Handle payment screenshot upload
+            payment_screenshot_data = None
+            if workshop.price > 0 and payment_screenshot:
+                payment_screenshot_data = encode_image_to_base64(payment_screenshot)
+            
             registration_data = {
                 'notes': notes,
                 'payment_method': payment_method.lower() if workshop.price > 0 else None,
                 'transaction_id': transaction_id if workshop.price > 0 else None,
-                'upi_id': upi_id if workshop.price > 0 and payment_method == "UPI" else None
+                'upi_id': upi_id if workshop.price > 0 and payment_method == "UPI" else None,
+                'payment_screenshot_url': payment_screenshot_data
             }
+            
+            # Validate required fields for paid workshops
+            if workshop.price > 0:
+                if not transaction_id:
+                    st.error("Transaction ID is required for paid workshops")
+                    return
+                if not payment_screenshot:
+                    st.error("Payment screenshot is required for paid workshops")
+                    return
             
             success, message = wm.register_for_workshop(user.id, workshop.id, registration_data)
             
@@ -368,6 +400,13 @@ def show_workshop_form(workshop=None, form_key="workshop_form"):
             price = st.number_input("Price (₹)", min_value=0.0, value=float(workshop.price) if is_edit else 0.0)
             max_seats = st.number_input("Max Seats *", min_value=1, value=workshop.max_seats if is_edit else 50)
         
+        # UPI ID for paid workshops
+        if price > 0:
+            organizer_upi_id = st.text_input("Organizer UPI ID *", 
+                                           value=workshop.organizer_upi_id if is_edit else "",
+                                           placeholder="your-upi@paytm",
+                                           help="Participants will use this UPI ID for payments")
+        
         workshop_date = st.date_input("Date *", value=workshop.date.date() if is_edit else date.today())
         time = st.text_input("Time *", value=workshop.time if is_edit else "", placeholder="e.g., 10:00 AM")
         description = st.text_area("Description", value=workshop.description if is_edit else "")
@@ -378,7 +417,12 @@ def show_workshop_form(workshop=None, form_key="workshop_form"):
         submitted = st.form_submit_button("Update Workshop" if is_edit else "Create Workshop")
         
         if submitted:
-            if all([title, organizer, instructor, location, city, category, level, duration, time, max_seats]):
+            # Validate required fields
+            required_fields = [title, organizer, instructor, location, city, category, level, duration, time, max_seats]
+            if price > 0:
+                required_fields.append(organizer_upi_id)
+            
+            if all(required_fields):
                 workshop_data = {
                     'title': title,
                     'organizer': organizer,
@@ -393,7 +437,8 @@ def show_workshop_form(workshop=None, form_key="workshop_form"):
                     'date': workshop_date,
                     'time': time,
                     'description': description,
-                    'mode': mode
+                    'mode': mode,
+                    'organizer_upi_id': organizer_upi_id if price > 0 else None
                 }
                 
                 if is_edit:
@@ -409,7 +454,16 @@ def show_workshop_form(workshop=None, form_key="workshop_form"):
                 else:
                     st.error(message)
             else:
-                st.error("Please fill in all required fields (*)")
+                missing_fields = []
+                if not title: missing_fields.append("Title")
+                if not organizer: missing_fields.append("Organizer")
+                if not instructor: missing_fields.append("Instructor")
+                if not location: missing_fields.append("Location")
+                if not duration: missing_fields.append("Duration")
+                if not time: missing_fields.append("Time")
+                if price > 0 and not organizer_upi_id: missing_fields.append("Organizer UPI ID")
+                
+                st.error(f"Please fill in all required fields: {', '.join(missing_fields)}")
 
 def show_registration_management():
     """Display registration management page"""
@@ -450,29 +504,74 @@ def show_registration_management():
                         
                         if registration.upi_id:
                             st.write(f"**UPI ID:** {registration.upi_id}")
+                        
+                        if registration.payment_screenshot_url:
+                            if st.button("View Payment Screenshot", key=f"view_screenshot_{registration.id}"):
+                                st.session_state[f'show_screenshot_{registration.id}'] = True
+                        
+                        if registration.workshop.price > 0:
+                            payment_status = "✅ Verified" if registration.payment_verified else "⏳ Pending Verification"
+                            st.write(f"**Payment Status:** {payment_status}")
+                    
+                    # Show payment screenshot if requested
+                    if st.session_state.get(f'show_screenshot_{registration.id}') and registration.payment_screenshot_url:
+                        st.subheader("Payment Screenshot")
+                        try:
+                            # Display base64 image
+                            st.markdown(f'<img src="{registration.payment_screenshot_url}" width="300">', unsafe_allow_html=True)
+                        except:
+                            st.error("Unable to display payment screenshot")
+                        
+                        col_verify, col_close = st.columns(2)
+                        with col_verify:
+                            if not registration.payment_verified and st.button("✅ Verify Payment", key=f"verify_payment_{registration.id}"):
+                                success, message = wm.verify_payment(registration.id)
+                                if success:
+                                    st.success("Payment verified successfully")
+                                    st.rerun()
+                                else:
+                                    st.error(message)
+                        
+                        with col_close:
+                            if st.button("Close Screenshot", key=f"close_screenshot_{registration.id}"):
+                                del st.session_state[f'show_screenshot_{registration.id}']
+                                st.rerun()
                     
                     # Admin actions
                     st.subheader("Admin Actions")
                     admin_notes = st.text_area("Admin Notes", key=f"notes_{registration.id}")
                     
+                    # Check available seats before approval
+                    available_seats = registration.workshop.available_seats
+                    can_approve = available_seats > 0
+                    
+                    if registration.workshop.price > 0:
+                        can_approve = can_approve and registration.payment_verified
+                    
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("✅ Approve", key=f"approve_{registration.id}"):
-                            success, message = wm.approve_registration(registration.id, admin_notes)
-                            if success:
-                                st.success(message)
-                                st.rerun()
+                        if registration.status == "pending":
+                            if can_approve:
+                                if st.button("✅ Approve", key=f"approve_{registration.id}"):
+                                    success, message = wm.approve_registration(registration.id, admin_notes)
+                                    if success:
+                                        st.success(message)
+                                        st.rerun()
+                                    else:
+                                        st.error(message)
                             else:
-                                st.error(message)
+                                reason = "No available seats" if available_seats <= 0 else "Payment not verified"
+                                st.error(f"Cannot approve: {reason}")
                     
                     with col2:
-                        if st.button("❌ Reject", key=f"reject_{registration.id}"):
-                            success, message = wm.reject_registration(registration.id, admin_notes)
-                            if success:
-                                st.success(message)
-                                st.rerun()
-                            else:
-                                st.error(message)
+                        if registration.status == "pending":
+                            if st.button("❌ Reject", key=f"reject_{registration.id}"):
+                                success, message = wm.reject_registration(registration.id, admin_notes)
+                                if success:
+                                    st.success(message)
+                                    st.rerun()
+                                else:
+                                    st.error(message)
         else:
             st.info("No pending registrations")
     
@@ -791,7 +890,7 @@ def show_my_registrations():
 
 def show_user_profile():
     """Display user profile page"""
-    user = require_auth()
+    current_user = require_auth()
     
     st.header("👤 My Profile")
     
@@ -799,12 +898,11 @@ def show_user_profile():
         col1, col2 = st.columns(2)
         
         with col1:
-            name = st.text_input("Name", value=user.name)
-            email = st.text_input("Email", value=user.email, disabled=True)
+            name = st.text_input("Name", value=current_user.name)
+            email = st.text_input("Email", value=current_user.email, disabled=True)
         
         with col2:
-            phone = st.text_input("Phone", value=user.phone or "")
-            # Add password change option
+            phone = st.text_input("Phone", value=current_user.phone or "")
             change_password = st.checkbox("Change Password")
         
         if change_password:
@@ -815,8 +913,46 @@ def show_user_profile():
         submitted = st.form_submit_button("Update Profile")
         
         if submitted:
-            # Update profile logic here
-            st.success("Profile updated successfully!")
+            success = True
+            message = ""
+            
+            db = wm.db
+            try:
+                # Update basic info
+                user_to_update = db.query(User).filter(User.id == current_user.id).first()
+                user_to_update.name = name
+                user_to_update.phone = phone
+                
+                # Handle password change
+                if change_password:
+                    if not all([current_password, new_password, confirm_password]):
+                        success = False
+                        message = "Please fill in all password fields"
+                    elif new_password != confirm_password:
+                        success = False
+                        message = "New passwords do not match"
+                    elif len(new_password) < 6:
+                        success = False
+                        message = "New password must be at least 6 characters long"
+                    elif not user_to_update.verify_password(current_password):
+                        success = False
+                        message = "Current password is incorrect"
+                    else:
+                        user_to_update.password_hash = User.hash_password(new_password)
+                        message = "Profile and password updated successfully!"
+                
+                if success:
+                    db.commit()
+                    if not change_password:
+                        message = "Profile updated successfully!"
+                    st.success(message)
+                    st.rerun()
+                else:
+                    st.error(message)
+                    
+            except Exception as e:
+                db.rollback()
+                st.error(f"Error updating profile: {str(e)}")
 
 # Page routing based on user authentication and role
 if not user:

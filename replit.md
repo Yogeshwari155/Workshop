@@ -110,6 +110,10 @@ Changelog:
 - June 24, 2025: Added enterprise dashboard and workshop management capabilities
 - June 24, 2025: Implemented functional edit operations for workshops
 - June 24, 2025: Added enterprise registration management and approval system
+- June 24, 2025: Added payment verification with UPI ID and screenshot upload
+- June 24, 2025: Implemented user profile editing with password change
+- June 24, 2025: Enhanced admin controls with seat availability and payment verification
+- June 24, 2025: Added comprehensive user activity tracking and management
 ```
 
 ## User Preferences

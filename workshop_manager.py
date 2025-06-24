@@ -84,6 +84,15 @@ class WorkshopManager:
                 if hasattr(workshop, key):
                     setattr(workshop, key, value)
             
+            # Update available seats if max_seats changed
+            if 'max_seats' in workshop_data:
+                # Calculate new available seats based on current registrations
+                confirmed_registrations = self.db.query(Registration).filter(
+                    Registration.workshop_id == workshop_id,
+                    Registration.status == "confirmed"
+                ).count()
+                workshop.available_seats = max(0, workshop.max_seats - confirmed_registrations)
+            
             self.db.commit()
             return True, f"Workshop '{workshop.title}' updated successfully!"
         
@@ -173,6 +182,17 @@ class WorkshopManager:
         total = query.count()
         offset = (page - 1) * per_page
         workshops = query.offset(offset).limit(per_page).all()
+        
+        # Update available seats for all workshops before returning
+        for workshop in workshops:
+            confirmed_registrations = self.db.query(Registration).filter(
+                Registration.workshop_id == workshop.id,
+                Registration.status == "confirmed"
+            ).count()
+            workshop.available_seats = max(0, workshop.max_seats - confirmed_registrations)
+        
+        # Commit the updates
+        self.db.commit()
         
         return {
             'workshops': workshops,

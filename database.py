@@ -66,6 +66,7 @@ class Workshop(Base):
     level = Column(String(20), nullable=False)  # Beginner, Intermediate, Advanced
     duration = Column(String(20), nullable=False)
     price = Column(Float, default=0.0)
+    organizer_upi_id = Column(String(100), nullable=True)  # UPI ID for payments
     max_seats = Column(Integer, nullable=False)
     available_seats = Column(Integer, nullable=False)
     mode = Column(String(20), default="manual")  # manual, automated
@@ -106,6 +107,7 @@ class Registration(Base):
     transaction_id = Column(String(100), nullable=True)
     upi_id = Column(String(100), nullable=True)
     payment_screenshot_url = Column(String(500), nullable=True)
+    payment_verified = Column(Boolean, default=False)  # Payment verification status
     notes = Column(Text, nullable=True)
     admin_notes = Column(Text, nullable=True)
     registered_at = Column(DateTime(timezone=True), server_default=func.now())
