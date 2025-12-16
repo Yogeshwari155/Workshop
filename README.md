@@ -84,6 +84,3 @@ streamlit run app.py
 
 This project is developed for educational purposes.
 
-## Author
-
-Developed by **Yogeshwari155**
